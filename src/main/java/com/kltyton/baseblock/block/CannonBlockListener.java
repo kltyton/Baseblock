@@ -28,6 +28,19 @@ public class CannonBlockListener implements Listener {
                         PersistentDataType.INTEGER,
                         1
                 );
+                // 保存主人UUID
+                state.getPersistentDataContainer().set(
+                        CannonBlockItem.CANNON_OWNER_KEY,
+                        PersistentDataType.STRING,
+                        event.getPlayer().getUniqueId().toString()
+                );
+
+                // 设置默认模式
+                state.getPersistentDataContainer().set(
+                        CannonBlockItem.CANNON_MODE_KEY,
+                        PersistentDataType.INTEGER,
+                        1
+                );
                 state.update();
                 CannonAttackTask.addCannonLocation(block.getLocation());
             }
@@ -50,15 +63,8 @@ public class CannonBlockListener implements Listener {
         Chunk chunk = event.getChunk();
         // 加载时注册所有有效炮台
         for (BlockState state : chunk.getTileEntities()) {
-            if (state.getType() == Material.DISPENSER
-                    && state instanceof TileState) {
-                TileState tileState = (TileState) state;
-                if (tileState.getPersistentDataContainer().has(
-                        CannonBlockItem.CANNON_KEY,
-                        PersistentDataType.INTEGER
-                )) {
-                    CannonAttackTask.addCannonLocation(state.getLocation());
-                }
+            if (CannonBlockUtils.isCannonBlock(state.getBlock())) {
+                CannonAttackTask.addCannonLocation(state.getLocation());
             }
         }
     }

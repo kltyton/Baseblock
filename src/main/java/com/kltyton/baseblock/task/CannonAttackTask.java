@@ -1,11 +1,14 @@
 package com.kltyton.baseblock.task;
 
 import com.kltyton.baseblock.item.CannonBlockItem;
+import com.kltyton.baseblock.util.CannonBlockUtils;
+import com.kltyton.baseblock.util.RayCastUtil;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.TileState;
 import org.bukkit.entity.*;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
@@ -14,12 +17,13 @@ import java.util.*;
 public class CannonAttackTask extends BukkitRunnable {
     private static final Set<Location> cannonLocations = new HashSet<>();
     private static final int RANGE = 6;
+    private static final int DAMAGE = 5;
 
     @Override
     public void run() {
         for (Location loc : new ArrayList<>(cannonLocations)) {
             Block block = loc.getBlock();
-            if (block.getType() != Material.DISPENSER) {
+            if (!CannonBlockUtils.isCannonBlock(block)) {
                 cannonLocations.remove(loc);
                 continue;
             }
@@ -31,18 +35,25 @@ public class CannonAttackTask extends BukkitRunnable {
     private void attackEntities(Location center) {
         World world = center.getWorld();
         if (world == null) return;
-
         // 获取炮台中心坐标
         Location cannonCenter = center.clone().add(0.5, 0.5, 0.5);
-
+        TileState tileState = (TileState) center.getBlock().getState();
+        int mode = tileState.getPersistentDataContainer().getOrDefault(CannonBlockItem.CANNON_MODE_KEY, PersistentDataType.INTEGER, 1);
+        UUID owner = UUID.fromString(Objects.requireNonNull(tileState.getPersistentDataContainer().get(CannonBlockItem.CANNON_OWNER_KEY, PersistentDataType.STRING)));
         // 获取范围内实体并锁定最近目标
-        List<LivingEntity> targets = world.getNearbyEntities(
-                        cannonCenter, RANGE, RANGE, RANGE,
-                        e -> e instanceof LivingEntity && !(e instanceof ArmorStand)
-                ).stream()
+        List<LivingEntity> targets = world.getNearbyEntities(cannonCenter, RANGE, RANGE, RANGE)
+                .stream()
+                .filter(e -> {
+                    if (!(e instanceof LivingEntity) || e instanceof ArmorStand) return false;
+                    return switch (mode) {
+                        case 1 -> attackMode1(e,owner);//模式1
+                        case 2 -> attackMode2(e.getType());//模式2
+                        case 3 -> attackMode3(e.getType());//模式3
+                        default -> true;
+                    };
+                })
                 .map(e -> (LivingEntity) e)
-                .sorted(Comparator.comparingDouble(e ->
-                        e.getLocation().distanceSquared(cannonCenter)))
+                .sorted(Comparator.comparingDouble(e -> e.getLocation().distanceSquared(cannonCenter)))
                 .limit(1) // 锁定最近的一个目标
                 .toList();
 
@@ -51,11 +62,30 @@ public class CannonAttackTask extends BukkitRunnable {
         LivingEntity target = targets.get(0);
         // 获取目标中心坐标
         Location targetCenter = target.getEyeLocation().subtract(0, 0.25, 0);
+        // 添加射线检测
+        RayCastUtil.RayCastResult result = RayCastUtil.hasClearPath(cannonCenter, targetCenter);
 
+        if (!result.hasClearPath) {
+            // 绘制到碰撞点的粒子线
+            drawLine(cannonCenter, result.hitLocation, Particle.FLAME);
+            return;
+        }
         // 执行攻击
-        target.damage(5.0);//伤害
+        target.damage(DAMAGE);//伤害
         drawLine(cannonCenter, targetCenter, Particle.FLAME);
     }
+
+    //模式修改
+    private boolean attackMode1(Entity entity,UUID owner) {
+        return !(entity instanceof Player) || !entity.getUniqueId().equals(owner);
+    }
+    private boolean attackMode2(EntityType type) {
+        return true;
+    }
+    private boolean attackMode3(EntityType type) {
+        return true;
+    }
+
     private void drawLine(Location start, Location end, Particle particle) {
         // 增加高度修正（保持直线可见性）
         start = start.clone().add(0, 0.25, 0);
@@ -97,12 +127,8 @@ public class CannonAttackTask extends BukkitRunnable {
         for (World world : Bukkit.getWorlds()) {
             for (Chunk chunk : world.getLoadedChunks()) {
                 for (BlockState state : chunk.getTileEntities()) {
-                    if (state.getType() == Material.DISPENSER &&
-                            state instanceof TileState) {
-                        TileState tileState = (TileState) state;
-                        if (tileState.getPersistentDataContainer().has(CannonBlockItem.CANNON_KEY)) {
-                            cannonLocations.add(state.getLocation());
-                        }
+                    if (!CannonBlockUtils.isCannonBlock(state.getBlock())) {
+                        cannonLocations.add(state.getLocation());
                     }
                 }
             }
