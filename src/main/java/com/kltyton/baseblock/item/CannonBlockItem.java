@@ -1,16 +1,40 @@
 package com.kltyton.baseblock.item;
 
+import com.kltyton.baseblock.Baseblock;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 
-public class CannonBlock {
+import java.util.ArrayList;
+import java.util.List;
+
+public class CannonBlockItem {
+    public static final NamespacedKey CANNON_KEY = new NamespacedKey(Baseblock.PLUGIN_NAME, "cannon_block");
+    public static final int CUSTOM_MODEL_DATA = 114514;
+
     public ItemStack createCannonBlockItem() {
-        ItemStack item = new ItemStack(Material.DIAMOND_BLOCK);
+        ItemStack item = new ItemStack(Material.DISPENSER);
         ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName(ChatColor.GOLD + "炮台");
-        meta.setCustomModelData(114514);
+
+        // 基础设置
+        meta.setDisplayName(ChatColor.RED + "自动炮台");
+        meta.setCustomModelData(CUSTOM_MODEL_DATA);
+
+        // 添加Lore描述
+        List<String> lore = new ArrayList<>();
+        lore.add(ChatColor.GRAY + "放置后自动攻击范围内生物");
+        meta.setLore(lore);
+
+        // 隐藏原版属性
+        meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
+        meta.addItemFlags(ItemFlag.HIDE_DESTROYS);
+
+        // 持久化数据
+        meta.getPersistentDataContainer().set(CANNON_KEY, PersistentDataType.INTEGER, 1);
         item.setItemMeta(meta);
         return item;
     }
