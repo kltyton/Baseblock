@@ -1,54 +1,74 @@
 package com.kltyton.baseblock.task;
 
-import com.kltyton.baseblock.item.CannonBlockItem;
-import com.kltyton.baseblock.util.CannonBlockUtils;
+import com.kltyton.baseblock.util.TurretBlockUtils;
 import com.kltyton.baseblock.util.RayCastUtil;
 import org.bukkit.*;
-import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.TileState;
 import org.bukkit.entity.*;
-import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
 import java.util.*;
 
-public class CannonAttackTask extends BukkitRunnable {
+public class TurretBlockAttackTask extends BukkitRunnable {
+    private static final Map<Location, Integer> cooldownMap = new HashMap<>(); // 冷却计时器
     private static final Set<Location> cannonLocations = new HashSet<>();
     private static final int RANGE = 6;
     private static final int DAMAGE = 5;
 
     @Override
     public void run() {
-        for (Location loc : new ArrayList<>(cannonLocations)) {
-            Block block = loc.getBlock();
-            if (!CannonBlockUtils.isCannonBlock(block)) {
+        Iterator<Map.Entry<Location, Integer>> iterator = cooldownMap.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<Location, Integer> entry = iterator.next();
+            Location loc = entry.getKey();
+            int remainingCooldown = entry.getValue();
+
+            // 检查方块是否仍然有效
+            if (!TurretBlockUtils.isCannonBlock(loc.getBlock())) {
+                iterator.remove();
                 cannonLocations.remove(loc);
                 continue;
             }
 
-            attackEntities(loc);
+            // 更新冷却时间
+            cooldownMap.put(loc, remainingCooldown - 1);
+        }
+
+        // 处理攻击逻辑
+        for (Location loc : new ArrayList<>(cannonLocations)) {
+            int currentCooldown = cooldownMap.getOrDefault(loc, 0);
+
+            if (currentCooldown <= 0) {
+                if (attackEntities(loc)) { // 如果攻击成功
+                    // 获取炮台的实际CD
+                    TileState state = (TileState) loc.getBlock().getState();
+                    int baseCD = TurretBlockUtils.getCannonBlockAttackCd(state);
+                    cooldownMap.put(loc, baseCD); // 重置冷却时间
+                }
+            }
         }
     }
 
-    private void attackEntities(Location center) {
+    private boolean attackEntities(Location center) {
         World world = center.getWorld();
-        if (world == null) return;
+        if (world == null) return false;
         // 获取炮台中心坐标
         Location cannonCenter = center.clone().add(0.5, 0.5, 0.5);
         TileState tileState = (TileState) center.getBlock().getState();
-        int mode = tileState.getPersistentDataContainer().getOrDefault(CannonBlockItem.CANNON_MODE_KEY, PersistentDataType.INTEGER, 1);
-        UUID owner = UUID.fromString(Objects.requireNonNull(tileState.getPersistentDataContainer().get(CannonBlockItem.CANNON_OWNER_KEY, PersistentDataType.STRING)));
+        int mode = TurretBlockUtils.getCannonBlockMode(tileState);
+        int level = TurretBlockUtils.getCannonBlockLevel(tileState);
+        UUID owner = UUID.fromString(TurretBlockUtils.getCannonBlockOwner(tileState));
         // 获取范围内实体并锁定最近目标
-        List<LivingEntity> targets = world.getNearbyEntities(cannonCenter, RANGE, RANGE, RANGE)
+        List<LivingEntity> targets = world.getNearbyEntities(cannonCenter, RANGE + level - 1, RANGE + level - 1, RANGE + level - 1)
                 .stream()
                 .filter(e -> {
                     if (!(e instanceof LivingEntity) || e instanceof ArmorStand) return false;
                     return switch (mode) {
-                        case 1 -> attackMode1(e,owner);//模式1
-                        case 2 -> attackMode2(e.getType());//模式2
-                        case 3 -> attackMode3(e.getType());//模式3
+                        case 1 -> attackMode1(e.getType());//模式1
+                        case 2 -> attackMode2(e,owner);//模式2
+                        case 3 -> attackMode3(e);//模式3
                         default -> true;
                     };
                 })
@@ -57,7 +77,7 @@ public class CannonAttackTask extends BukkitRunnable {
                 .limit(1) // 锁定最近的一个目标
                 .toList();
 
-        if (targets.isEmpty()) return;
+        if (targets.isEmpty()) return false;
 
         LivingEntity target = targets.get(0);
         // 获取目标中心坐标
@@ -67,25 +87,28 @@ public class CannonAttackTask extends BukkitRunnable {
 
         if (!result.hasClearPath) {
             // 绘制到碰撞点的粒子线
-            drawLine(cannonCenter, result.hitLocation, Particle.FLAME);
-            return;
+            //drawLine(cannonCenter, result.hitLocation, Particle.FLAME);
+            return false;
         }
         // 执行攻击
-        target.damage(DAMAGE);//伤害
+        target.damage(DAMAGE + level - 1);//伤害
         drawLine(cannonCenter, targetCenter, Particle.FLAME);
+        return true;
     }
 
     //模式修改
-    private boolean attackMode1(Entity entity,UUID owner) {
+
+
+
+    private boolean attackMode1(EntityType type) {
+        return true;
+    }
+    private boolean attackMode2(Entity entity,UUID owner) {
         return !(entity instanceof Player) || !entity.getUniqueId().equals(owner);
     }
-    private boolean attackMode2(EntityType type) {
-        return true;
+    private boolean attackMode3(Entity entity) {
+        return entity instanceof Zombie;
     }
-    private boolean attackMode3(EntityType type) {
-        return true;
-    }
-
     private void drawLine(Location start, Location end, Particle particle) {
         // 增加高度修正（保持直线可见性）
         start = start.clone().add(0, 0.25, 0);
@@ -127,7 +150,7 @@ public class CannonAttackTask extends BukkitRunnable {
         for (World world : Bukkit.getWorlds()) {
             for (Chunk chunk : world.getLoadedChunks()) {
                 for (BlockState state : chunk.getTileEntities()) {
-                    if (!CannonBlockUtils.isCannonBlock(state.getBlock())) {
+                    if (!TurretBlockUtils.isCannonBlock(state.getBlock())) {
                         cannonLocations.add(state.getLocation());
                     }
                 }
